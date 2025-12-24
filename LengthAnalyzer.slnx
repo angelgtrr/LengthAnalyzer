@@ -1,0 +1,7 @@
+<Solution>
+  <Project Path="LengthAnalyzer.CodeFixes/LengthAnalyzer.CodeFixes.csproj" />
+  <Project Path="LengthAnalyzer.Package/LengthAnalyzer.Package.csproj" />
+  <Project Path="LengthAnalyzer.Test/LengthAnalyzer.Test.csproj" />
+  <Project Path="LengthAnalyzer.Vsix/LengthAnalyzer.Vsix.csproj" />
+  <Project Path="LengthAnalyzer/LengthAnalyzer.csproj" />
+</Solution>
