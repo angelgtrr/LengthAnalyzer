@@ -15,7 +15,7 @@ namespace LengthAnalyzer
     [ExportCodeFixProvider(LanguageNames.CSharp, Name = nameof(LineLengthCodeFixes)), Shared]
     public class LineLengthCodeFixes : CodeFixProvider
     {
-        private const string IndentUnit = "    "; // one extra indent level (4 spaces). Adjust to your team's settings.
+        private const string IndentUnit = "    "; // adjust to your team’s indent style
 
         public override ImmutableArray<string> FixableDiagnosticIds
             => ImmutableArray.Create(LineLengthAnalyzer.LineTooLongId);
@@ -37,14 +37,16 @@ namespace LengthAnalyzer
         private async Task<Document> ApplyFixAsync(Document document, Diagnostic diagnostic, CancellationToken cancellationToken)
         {
             var root = await document.GetSyntaxRootAsync(cancellationToken).ConfigureAwait(false);
-            var node = root.FindNode(diagnostic.Location.SourceSpan);
+            var spanNode = root.FindNode(diagnostic.Location.SourceSpan);
 
-            var newNode = HandleNode(node);
+            // Expand scope: operate on enclosing method if available
+            var target = spanNode.FirstAncestorOrSelf<MethodDeclarationSyntax>() ?? spanNode;
 
-            if (newNode == null)
+            var newTarget = HandleNode(target);
+            if (newTarget == null || ReferenceEquals(newTarget, target))
                 return document;
 
-            var newRoot = root.ReplaceNode(node, newNode);
+            var newRoot = root.ReplaceNode(target, newTarget);
             return document.WithSyntaxRoot(newRoot);
         }
 
@@ -52,34 +54,41 @@ namespace LengthAnalyzer
         {
             switch (node)
             {
+                case MethodDeclarationSyntax method:
+                    var newParams = WrapParameters(method.ParameterList);
+
+                    var newBody = method.Body != null
+                        ? (BlockSyntax)HandleNode(method.Body)
+                        : method.Body;
+
+                    var newExprBody = method.ExpressionBody != null
+                        ? method.ExpressionBody.WithExpression((ExpressionSyntax)HandleNode(method.ExpressionBody.Expression))
+                        : method.ExpressionBody;
+
+                    return method
+                        .WithParameterList(newParams)
+                        .WithBody(newBody)
+                        .WithExpressionBody(newExprBody);
+
+                case BlockSyntax block:
+                    return block.ReplaceNodes(block.Statements, (orig, _) => HandleNode(orig));
+
+                case ExpressionStatementSyntax exprStmt:
+                    return exprStmt.WithExpression((ExpressionSyntax)HandleNode(exprStmt.Expression));
+
+                case InvocationExpressionSyntax invocation:
+                    var newArgs = WrapArguments(invocation.ArgumentList);
+                    return invocation.WithArgumentList(newArgs)
+                                     .WithAdditionalAnnotations(Formatter.Annotation);
+
                 case ArgumentListSyntax args:
                     return WrapArguments(args);
 
                 case ParameterListSyntax parameters:
                     return WrapParameters(parameters);
 
-                case LiteralExpressionSyntax literal
-                    when literal.IsKind(SyntaxKind.StringLiteralExpression):
-                    return WrapStringLiteral(literal);
-
-                case InvocationExpressionSyntax invocation:
-                    return invocation
-                        .WithArgumentList(WrapArguments(invocation.ArgumentList))
-                        .WithAdditionalAnnotations(Formatter.Annotation);
-
-                case ExpressionStatementSyntax exprStmt:
-                    return exprStmt.WithExpression(
-                        (ExpressionSyntax)HandleNode(exprStmt.Expression));
-
-                case MethodDeclarationSyntax methodDecl:
-                    return methodDecl.WithParameterList(
-                        (ParameterListSyntax)HandleNode(methodDecl.ParameterList));
-
                 default:
-                    // Recurse into children
-                    return node.ReplaceNodes(
-                        node.ChildNodes(),
-                        (original, _) => HandleNode(original));
+                    return node;
             }
         }
 
@@ -92,23 +101,24 @@ namespace LengthAnalyzer
             return new string(' ', linePos.Character);
         }
 
+        // For invocation arguments
         private ArgumentListSyntax WrapArguments(ArgumentListSyntax node)
         {
-            var baseIndent = GetBaseIndent(node.Parent);     // align ')' with invocation
-            var argIndent = baseIndent + IndentUnit;         // indent arguments one level deeper
+            // If only one argument, leave it as-is
+            if (node.Arguments.Count <= 1)
+                return node;
+
+            var baseIndent = GetBaseIndent(node.Parent);
+            var argIndent = baseIndent + IndentUnit;
 
             var args = node.Arguments;
             var items = new System.Collections.Generic.List<SyntaxNodeOrToken>(args.Count * 2);
 
-            // After '(' put a newline; the first argument will add the indent.
             var openParen = node.OpenParenToken.WithTrailingTrivia(SyntaxFactory.ElasticCarriageReturnLineFeed);
 
             for (int i = 0; i < args.Count; i++)
             {
-                var arg = args[i];
-
-                // Each argument line starts with indent only
-                var argNode = arg
+                var argNode = args[i]
                     .WithLeadingTrivia(SyntaxFactory.Whitespace(argIndent))
                     .WithTrailingTrivia(SyntaxTriviaList.Empty);
 
@@ -116,42 +126,37 @@ namespace LengthAnalyzer
 
                 if (i < args.Count - 1)
                 {
-                    // Comma: newline only (no indent here)
                     var comma = SyntaxFactory.Token(SyntaxKind.CommaToken)
-                        .WithTrailingTrivia(
-                            SyntaxFactory.ElasticCarriageReturnLineFeed);
-
+                        .WithTrailingTrivia(SyntaxFactory.ElasticCarriageReturnLineFeed);
                     items.Add(comma);
                 }
             }
 
             var separated = SyntaxFactory.SeparatedList<ArgumentSyntax>(items);
-
-            // Close paren: no newline before, just base indent if needed
-            var closeParen = node.CloseParenToken
-                .WithLeadingTrivia(SyntaxTriviaList.Empty);
+            var closeParen = node.CloseParenToken.WithLeadingTrivia(SyntaxTriviaList.Empty);
 
             return SyntaxFactory.ArgumentList(openParen, separated, closeParen)
                 .WithAdditionalAnnotations(Formatter.Annotation);
         }
 
+        // For method declaration parameters
         private ParameterListSyntax WrapParameters(ParameterListSyntax node)
         {
-            var baseIndent = GetBaseIndent(node.Parent); // indent level of the method declaration
-            var paramIndent = baseIndent + IndentUnit;   // one indent deeper for parameters
+            // If only one parameter, leave it as-is
+            if (node.Parameters.Count <= 1)
+                return node;
+
+            var baseIndent = GetBaseIndent(node.Parent);
+            var paramIndent = baseIndent + IndentUnit;
 
             var parameters = node.Parameters;
             var items = new System.Collections.Generic.List<SyntaxNodeOrToken>(parameters.Count * 2);
 
-            // After '(' put a newline; the first parameter will add the indent.
             var openParen = node.OpenParenToken.WithTrailingTrivia(SyntaxFactory.ElasticCarriageReturnLineFeed);
 
             for (int i = 0; i < parameters.Count; i++)
             {
-                var p = parameters[i];
-
-                // Each parameter line starts with paramIndent
-                var paramNode = p
+                var paramNode = parameters[i]
                     .WithLeadingTrivia(SyntaxFactory.Whitespace(paramIndent))
                     .WithTrailingTrivia(SyntaxTriviaList.Empty);
 
@@ -159,17 +164,13 @@ namespace LengthAnalyzer
 
                 if (i < parameters.Count - 1)
                 {
-                    // Comma: newline only
                     var comma = SyntaxFactory.Token(SyntaxKind.CommaToken)
                         .WithTrailingTrivia(SyntaxFactory.ElasticCarriageReturnLineFeed);
-
                     items.Add(comma);
                 }
             }
 
             var separated = SyntaxFactory.SeparatedList<ParameterSyntax>(items);
-
-            // Close paren: no newline before, align with method declaration
             var closeParen = node.CloseParenToken.WithLeadingTrivia(SyntaxTriviaList.Empty);
 
             return SyntaxFactory.ParameterList(openParen, separated, closeParen)
@@ -179,18 +180,14 @@ namespace LengthAnalyzer
         private SyntaxNode WrapStringLiteral(LiteralExpressionSyntax literal)
         {
             var text = literal.Token.ValueText;
-
-            // naive split at midpoint for demo purposes
             int splitIndex = text.Length / 2;
             var first = text.Substring(0, splitIndex);
             var second = text.Substring(splitIndex);
 
             var newExpr = SyntaxFactory.BinaryExpression(
                 SyntaxKind.AddExpression,
-                SyntaxFactory.LiteralExpression(SyntaxKind.StringLiteralExpression,
-                    SyntaxFactory.Literal(first)),
-                SyntaxFactory.LiteralExpression(SyntaxKind.StringLiteralExpression,
-                    SyntaxFactory.Literal(second)))
+                SyntaxFactory.LiteralExpression(SyntaxKind.StringLiteralExpression, SyntaxFactory.Literal(first)),
+                SyntaxFactory.LiteralExpression(SyntaxKind.StringLiteralExpression, SyntaxFactory.Literal(second)))
                 .WithLeadingTrivia(SyntaxFactory.ElasticCarriageReturnLineFeed)
                 .WithTrailingTrivia(SyntaxFactory.Whitespace(GetBaseIndent(literal.Parent) + IndentUnit))
                 .WithAdditionalAnnotations(Formatter.Annotation);
