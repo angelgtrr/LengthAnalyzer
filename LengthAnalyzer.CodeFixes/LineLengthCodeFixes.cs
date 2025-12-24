@@ -118,7 +118,8 @@ namespace LengthAnalyzer
                 {
                     // Comma: newline only (no indent here)
                     var comma = SyntaxFactory.Token(SyntaxKind.CommaToken)
-                        .WithTrailingTrivia(SyntaxFactory.ElasticCarriageReturnLineFeed);
+                        .WithTrailingTrivia(
+                            SyntaxFactory.ElasticCarriageReturnLineFeed);
 
                     items.Add(comma);
                 }
@@ -126,10 +127,9 @@ namespace LengthAnalyzer
 
             var separated = SyntaxFactory.SeparatedList<ArgumentSyntax>(items);
 
-            // Before ')' put a newline + base indent, aligning the closing paren with the invocation
-            var closeParen = node.CloseParenToken.WithLeadingTrivia(
-                SyntaxFactory.ElasticCarriageReturnLineFeed,
-                SyntaxFactory.Whitespace(baseIndent));
+            // Close paren: no newline before, just base indent if needed
+            var closeParen = node.CloseParenToken
+                .WithLeadingTrivia(SyntaxTriviaList.Empty);
 
             return SyntaxFactory.ArgumentList(openParen, separated, closeParen)
                 .WithAdditionalAnnotations(Formatter.Annotation);

@@ -58,7 +58,7 @@ class C
             var testCode = @"
 class C
 {
-    public void CheckPopUpTextAndClose(BasePopUp popUp, BasePopUp popUp, BasePopUp popUp, PopUpBodyEnum expectedBody, TimeSpan? timeout = null, PopUpBodyEnum expectedBody, PopUpBodyEnum expectedBody)
+    public void CheckPopUpTextAndClose(BasePopUp popUp1, BasePopUp popUp2, BasePopUp popUp3, PopUpBodyEnum expectedBody, TimeSpan? timeout = null, TimeSpan? timeout2 = null)
     {
     }
 }";
@@ -67,12 +67,16 @@ class C
 class C
 {
     public void CheckPopUpTextAndClose(
-        BasePopUp popUp,
+        BasePopUp popUp1,
+        BasePopUp popUp2,
+        BasePopUp popUp3,
         PopUpBodyEnum expectedBody,
-        TimeSpan? timeout = null)
+        TimeSpan? timeout = null,
+        TimeSpan? timeout2 = null)
     {
     }
-}";
+}
+";
 
 
             var document = await BaseMethods.GetDocument(testCode);
@@ -83,7 +87,7 @@ class C
 
             var newText = await BaseMethods.ApplyArgumentsTooLong(testCode);
 
-            Assert.That(newText.Trim(), Is.EqualTo(expectedFixedCode.Trim()));
+            Assert.That(newText.Trim(), Is.EqualTo(expectedFixedCode.Trim()), $"Result: {newText.Trim()} \n expected: {expectedFixedCode}");
         }
 
         [Test]
