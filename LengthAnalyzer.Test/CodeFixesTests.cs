@@ -42,7 +42,6 @@ class C
     }
 }";
 
-            var document = await BaseMethods.GetDocument(testCode);
             var diagnostics = await BaseMethods.GetDiagnosticsAsync(testCode);
             Assert.That(diagnostics.Length, Is.GreaterThan(0), "No diagnostics found");
 
@@ -78,8 +77,6 @@ class C
 }
 ";
 
-
-            var document = await BaseMethods.GetDocument(testCode);
             var diagnostics = await BaseMethods.GetDiagnosticsAsync(testCode);
             Assert.That(diagnostics.Length, Is.GreaterThan(0), "No diagnostics found");
             Assert.That(diagnostics[0].Id, Is.EqualTo("LINE001"), "Expected diagnostic not found");
