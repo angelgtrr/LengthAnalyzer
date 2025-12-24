@@ -137,18 +137,20 @@ namespace LengthAnalyzer
 
         private ParameterListSyntax WrapParameters(ParameterListSyntax node)
         {
-            var baseIndent = GetBaseIndent(node.Parent);
-            var paramIndent = baseIndent + IndentUnit;
+            var baseIndent = GetBaseIndent(node.Parent); // indent level of the method declaration
+            var paramIndent = baseIndent + IndentUnit;   // one indent deeper for parameters
 
             var parameters = node.Parameters;
             var items = new System.Collections.Generic.List<SyntaxNodeOrToken>(parameters.Count * 2);
 
+            // After '(' put a newline; the first parameter will add the indent.
             var openParen = node.OpenParenToken.WithTrailingTrivia(SyntaxFactory.ElasticCarriageReturnLineFeed);
 
             for (int i = 0; i < parameters.Count; i++)
             {
                 var p = parameters[i];
 
+                // Each parameter line starts with paramIndent
                 var paramNode = p
                     .WithLeadingTrivia(SyntaxFactory.Whitespace(paramIndent))
                     .WithTrailingTrivia(SyntaxTriviaList.Empty);
@@ -157,10 +159,9 @@ namespace LengthAnalyzer
 
                 if (i < parameters.Count - 1)
                 {
+                    // Comma: newline only
                     var comma = SyntaxFactory.Token(SyntaxKind.CommaToken)
-                        .WithTrailingTrivia(
-                            SyntaxFactory.ElasticCarriageReturnLineFeed,
-                            SyntaxFactory.Whitespace(paramIndent));
+                        .WithTrailingTrivia(SyntaxFactory.ElasticCarriageReturnLineFeed);
 
                     items.Add(comma);
                 }
@@ -168,9 +169,8 @@ namespace LengthAnalyzer
 
             var separated = SyntaxFactory.SeparatedList<ParameterSyntax>(items);
 
-            var closeParen = node.CloseParenToken.WithLeadingTrivia(
-                SyntaxFactory.ElasticCarriageReturnLineFeed,
-                SyntaxFactory.Whitespace(baseIndent));
+            // Close paren: no newline before, align with method declaration
+            var closeParen = node.CloseParenToken.WithLeadingTrivia(SyntaxTriviaList.Empty);
 
             return SyntaxFactory.ParameterList(openParen, separated, closeParen)
                 .WithAdditionalAnnotations(Formatter.Annotation);

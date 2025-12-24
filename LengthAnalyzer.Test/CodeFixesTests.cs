@@ -125,7 +125,8 @@ class C
 }";
 
             var newText = await BaseMethods.ApplyArgumentsTooLong(testCode);
-            Assert.That(newText.Trim(), Is.EqualTo(expectedFixedCode.Trim()));
+            newText = await BaseMethods.ApplyArgumentsTooLong(newText);
+            Assert.That(newText.Trim(), Is.EqualTo(expectedFixedCode.Trim()), $"Result: {newText.Trim()} \n expected: {expectedFixedCode}");
         }
 
 
