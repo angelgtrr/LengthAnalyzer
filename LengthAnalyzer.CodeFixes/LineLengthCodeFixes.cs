@@ -107,7 +107,7 @@ namespace LengthAnalyzer
             {
                 var arg = args[i];
 
-                // Leading trivia: indent only (no extra space, no extra newline here)
+                // Each argument line starts with indent only
                 var argNode = arg
                     .WithLeadingTrivia(SyntaxFactory.Whitespace(argIndent))
                     .WithTrailingTrivia(SyntaxTriviaList.Empty);
@@ -116,11 +116,9 @@ namespace LengthAnalyzer
 
                 if (i < args.Count - 1)
                 {
-                    // Comma: newline + indent for the next argument line
+                    // Comma: newline only (no indent here)
                     var comma = SyntaxFactory.Token(SyntaxKind.CommaToken)
-                        .WithTrailingTrivia(
-                            SyntaxFactory.ElasticCarriageReturnLineFeed,
-                            SyntaxFactory.Whitespace(argIndent));
+                        .WithTrailingTrivia(SyntaxFactory.ElasticCarriageReturnLineFeed);
 
                     items.Add(comma);
                 }
