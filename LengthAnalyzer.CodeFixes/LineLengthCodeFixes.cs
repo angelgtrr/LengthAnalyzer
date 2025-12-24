@@ -15,6 +15,8 @@ namespace LengthAnalyzer
     [ExportCodeFixProvider(LanguageNames.CSharp, Name = nameof(LineLengthCodeFixes)), Shared]
     public class LineLengthCodeFixes : CodeFixProvider
     {
+        private const string IndentUnit = "    "; // one extra indent level (4 spaces). Adjust to your team's settings.
+
         public override ImmutableArray<string> FixableDiagnosticIds
             => ImmutableArray.Create(LineLengthAnalyzer.LineTooLongId);
 
@@ -81,51 +83,98 @@ namespace LengthAnalyzer
             }
         }
 
+        private static string GetBaseIndent(SyntaxNode node)
+        {
+            if (node?.SyntaxTree == null)
+                return string.Empty;
+
+            var linePos = node.SyntaxTree.GetLineSpan(node.Span).StartLinePosition;
+            return new string(' ', linePos.Character);
+        }
+
         private ArgumentListSyntax WrapArguments(ArgumentListSyntax node)
         {
-            var newArguments = SyntaxFactory.SeparatedList(
-                node.Arguments.Select((arg, index) =>
+            var baseIndent = GetBaseIndent(node.Parent);     // align ')' with invocation
+            var argIndent = baseIndent + IndentUnit;         // indent arguments one level deeper
+
+            var args = node.Arguments;
+            var items = new System.Collections.Generic.List<SyntaxNodeOrToken>(args.Count * 2);
+
+            // After '(' put a newline; the first argument will add the indent.
+            var openParen = node.OpenParenToken.WithTrailingTrivia(SyntaxFactory.ElasticCarriageReturnLineFeed);
+
+            for (int i = 0; i < args.Count; i++)
+            {
+                var arg = args[i];
+
+                // Leading trivia: indent only (no extra space, no extra newline here)
+                var argNode = arg
+                    .WithLeadingTrivia(SyntaxFactory.Whitespace(argIndent))
+                    .WithTrailingTrivia(SyntaxTriviaList.Empty);
+
+                items.Add(argNode);
+
+                if (i < args.Count - 1)
                 {
-                    if (index == 0)
-                    {
-                        // First argument: no blank line before, just elastic space
-                        return arg.WithLeadingTrivia(SyntaxFactory.ElasticSpace)
-                                  .WithTrailingTrivia(SyntaxFactory.ElasticCarriageReturnLineFeed);
-                    }
+                    // Comma: newline + indent for the next argument line
+                    var comma = SyntaxFactory.Token(SyntaxKind.CommaToken)
+                        .WithTrailingTrivia(
+                            SyntaxFactory.ElasticCarriageReturnLineFeed,
+                            SyntaxFactory.Whitespace(argIndent));
 
-                    // Subsequent arguments: line break before
-                    return arg.WithLeadingTrivia(SyntaxFactory.ElasticCarriageReturnLineFeed)
-                              .WithTrailingTrivia(SyntaxFactory.ElasticCarriageReturnLineFeed);
-                }));
+                    items.Add(comma);
+                }
+            }
 
-            return SyntaxFactory.ArgumentList(newArguments)
-                .WithOpenParenToken(
-                    node.OpenParenToken.WithTrailingTrivia(SyntaxFactory.ElasticCarriageReturnLineFeed))
-                .WithCloseParenToken(
-                    node.CloseParenToken.WithLeadingTrivia(SyntaxFactory.ElasticCarriageReturnLineFeed))
+            var separated = SyntaxFactory.SeparatedList<ArgumentSyntax>(items);
+
+            // Before ')' put a newline + base indent, aligning the closing paren with the invocation
+            var closeParen = node.CloseParenToken.WithLeadingTrivia(
+                SyntaxFactory.ElasticCarriageReturnLineFeed,
+                SyntaxFactory.Whitespace(baseIndent));
+
+            return SyntaxFactory.ArgumentList(openParen, separated, closeParen)
                 .WithAdditionalAnnotations(Formatter.Annotation);
         }
 
         private ParameterListSyntax WrapParameters(ParameterListSyntax node)
         {
-            var newParameters = SyntaxFactory.SeparatedList(
-                node.Parameters.Select((p, index) =>
+            var baseIndent = GetBaseIndent(node.Parent);
+            var paramIndent = baseIndent + IndentUnit;
+
+            var parameters = node.Parameters;
+            var items = new System.Collections.Generic.List<SyntaxNodeOrToken>(parameters.Count * 2);
+
+            var openParen = node.OpenParenToken.WithTrailingTrivia(SyntaxFactory.ElasticCarriageReturnLineFeed);
+
+            for (int i = 0; i < parameters.Count; i++)
+            {
+                var p = parameters[i];
+
+                var paramNode = p
+                    .WithLeadingTrivia(SyntaxFactory.Whitespace(paramIndent))
+                    .WithTrailingTrivia(SyntaxTriviaList.Empty);
+
+                items.Add(paramNode);
+
+                if (i < parameters.Count - 1)
                 {
-                    if (index == 0)
-                    {
-                        return p.WithLeadingTrivia(SyntaxFactory.ElasticSpace)
-                                .WithTrailingTrivia(SyntaxFactory.ElasticCarriageReturnLineFeed);
-                    }
+                    var comma = SyntaxFactory.Token(SyntaxKind.CommaToken)
+                        .WithTrailingTrivia(
+                            SyntaxFactory.ElasticCarriageReturnLineFeed,
+                            SyntaxFactory.Whitespace(paramIndent));
 
-                    return p.WithLeadingTrivia(SyntaxFactory.ElasticCarriageReturnLineFeed)
-                            .WithTrailingTrivia(SyntaxFactory.ElasticCarriageReturnLineFeed);
-                }));
+                    items.Add(comma);
+                }
+            }
 
-            return SyntaxFactory.ParameterList(newParameters)
-                .WithOpenParenToken(
-                    node.OpenParenToken.WithTrailingTrivia(SyntaxFactory.ElasticCarriageReturnLineFeed))
-                .WithCloseParenToken(
-                    node.CloseParenToken.WithLeadingTrivia(SyntaxFactory.ElasticCarriageReturnLineFeed))
+            var separated = SyntaxFactory.SeparatedList<ParameterSyntax>(items);
+
+            var closeParen = node.CloseParenToken.WithLeadingTrivia(
+                SyntaxFactory.ElasticCarriageReturnLineFeed,
+                SyntaxFactory.Whitespace(baseIndent));
+
+            return SyntaxFactory.ParameterList(openParen, separated, closeParen)
                 .WithAdditionalAnnotations(Formatter.Annotation);
         }
 
@@ -145,7 +194,7 @@ namespace LengthAnalyzer
                 SyntaxFactory.LiteralExpression(SyntaxKind.StringLiteralExpression,
                     SyntaxFactory.Literal(second)))
                 .WithLeadingTrivia(SyntaxFactory.ElasticCarriageReturnLineFeed)
-                .WithTrailingTrivia(SyntaxFactory.ElasticSpace)
+                .WithTrailingTrivia(SyntaxFactory.Whitespace(GetBaseIndent(literal.Parent) + IndentUnit))
                 .WithAdditionalAnnotations(Formatter.Annotation);
 
             return newExpr;

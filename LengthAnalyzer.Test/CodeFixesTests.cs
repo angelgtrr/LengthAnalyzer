@@ -5,6 +5,7 @@ using Microsoft.CodeAnalysis.CSharp;
 using Microsoft.CodeAnalysis.Diagnostics;
 using Microsoft.CodeAnalysis.Text;
 using NUnit.Framework;
+using System;
 using System.Collections.Generic;
 using System.Collections.Immutable;
 using System.Linq;
@@ -47,7 +48,7 @@ class C
 
             var newText = await BaseMethods.ApplyArgumentsTooLong(testCode);
 
-            Assert.That(newText.Trim(), Is.EqualTo(expectedFixedCode.Trim()));
+            Assert.That(newText.Trim(), Is.EqualTo(expectedFixedCode.Trim()), $"Result: {newText.Trim()} \n expected: {expectedFixedCode}");
         }
 
 
