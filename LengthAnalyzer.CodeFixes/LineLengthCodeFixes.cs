@@ -16,7 +16,6 @@ namespace LengthAnalyzer
     public class LineLengthCodeFixes : CodeFixProvider
     {
         private const string IndentUnit = "    "; // team indent style
-        private const int MaxLength = 140;        // analyzer threshold
 
         public override ImmutableArray<string> FixableDiagnosticIds
             => ImmutableArray.Create(LineLengthAnalyzer.LineTooLongId);
@@ -41,6 +40,20 @@ namespace LengthAnalyzer
             var text = await document.GetTextAsync(cancellationToken).ConfigureAwait(false);
             var spanNode = root.FindNode(diagnostic.Location.SourceSpan, getInnermostNodeForTie: true);
 
+            // Default threshold
+            int maxLength = 140;
+
+            // Get options from .editorconfig via SyntaxTree
+            var tree = await document.GetSyntaxTreeAsync(cancellationToken).ConfigureAwait(false);
+            if (tree != null)
+            {
+                var options = document.Project.AnalyzerOptions.AnalyzerConfigOptionsProvider.GetOptions(tree);
+                if (options.TryGetValue("max_line_length", out var value) && int.TryParse(value, out var parsed))
+                {
+                    maxLength = parsed;
+                }
+            }
+
             // Prefer constructor initializer wrapping if diagnostic is on a constructor line
             var ctor = spanNode.FirstAncestorOrSelf<ConstructorDeclarationSyntax>()
                        ?? spanNode.Parent?.FirstAncestorOrSelf<ConstructorDeclarationSyntax>();
@@ -52,7 +65,7 @@ namespace LengthAnalyzer
                 var line = text.Lines[text.Lines.GetLineFromPosition(colonToken.SpanStart).LineNumber];
                 var lineLength = line.End - line.Start;
 
-                if (lineLength > MaxLength)
+                if (lineLength > maxLength)
                 {
                     var wrappedArgs = WrapArgumentsForCtor(init.ArgumentList, ctor);
                     if (!ReferenceEquals(wrappedArgs, init.ArgumentList))

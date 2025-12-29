@@ -195,6 +195,41 @@ namespace IpmQaApp.Screens.CintAs
                 $"Result: {newText.Trim()} \n expected: {expectedFixedCode}");
         }
 
+        [Test]
+        public async Task ExpressionBodyShouldPutMethodOnNewLine()
+        {
+            var testCode = @"
+using System;
+
+public class SupplierHelper
+{
+    public bool IsApproveOrderLblDisplayed(TimeSpan? timeout = null, TimeSpan? pollingInterval = null) => IsElementDisplayed(ApproveOrderLbl(), timeout, pollingInterval);
+}
+";
+
+            var expectedFixedCode = @"
+using System;
+
+public class SupplierHelper
+{
+    public bool IsApproveOrderLblDisplayed(TimeSpan? timeout = null, TimeSpan? pollingInterval = null) =>
+        IsElementDisplayed(ApproveOrderLbl(), timeout, pollingInterval);
+}
+";
+
+            var diagnostics = await BaseMethods.GetDiagnosticsAsync(testCode);
+            Assert.That(diagnostics.Length, Is.GreaterThan(0), "No diagnostics found");
+            Assert.That(diagnostics[0].Id, Is.EqualTo("LINE002"), "Expected diagnostic not found");
+
+            Assert.That(testCode, Contains.Substring("=>"));
+
+            var newText = await BaseMethods.ApplyExpressionBodyTooLong(testCode);
+
+            Assert.That(
+                newText.Trim(),
+                Is.EqualTo(expectedFixedCode.Trim()),
+                $"Result: {newText.Trim()} \n expected: {expectedFixedCode}");
+        }
 
     }
 }

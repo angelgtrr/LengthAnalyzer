@@ -83,5 +83,43 @@ namespace LengthAnalyzer.Test
 
             return newText.ToString();
         }
+
+        public static async Task<string> ApplyExpressionBodyTooLong(string source, Diagnostic diagnostic = null)
+        {
+            var document = await BaseMethods.GetDocument(source);
+
+            // Run analyzer to get diagnostics if none provided
+            if (diagnostic == null)
+            {
+                var compilation = await document.Project.GetCompilationAsync();
+                var analyzer = new LineLengthAnalyzer();
+                var diagnostics = await compilation.WithAnalyzers(
+                    ImmutableArray.Create<DiagnosticAnalyzer>(analyzer))
+                    .GetAnalyzerDiagnosticsAsync();
+
+                diagnostic = diagnostics.FirstOrDefault(d => d.Id == LineLengthAnalyzer.ExpressionBodyTooLongId);
+                if (diagnostic == null)
+                    return source; // nothing to fix
+            }
+
+            // Apply code fix for expression-bodied methods
+            var codeFixProvider = new ExpressionBodyCodeFixes();
+            var actions = new List<CodeAction>();
+            var context = new CodeFixContext(document, diagnostic,
+                (a, d) => actions.Add(a), CancellationToken.None);
+
+            await codeFixProvider.RegisterCodeFixesAsync(context);
+
+            if (!actions.Any())
+                return source; // no fix available
+
+            var operations = await actions[0].GetOperationsAsync(CancellationToken.None);
+            var solution = operations.OfType<ApplyChangesOperation>().Single().ChangedSolution;
+            var newDoc = solution.GetDocument(document.Id);
+            var newText = await newDoc.GetTextAsync();
+
+            return newText.ToString();
+        }
+
     }
 }

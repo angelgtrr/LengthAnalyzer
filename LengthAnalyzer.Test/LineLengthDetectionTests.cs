@@ -53,6 +53,16 @@ class C
             Assert.That(diagnostics, Is.Empty, "Expected no diagnostic because arguments are wrapped.");
         }
 
-
+        [Test]
+        public async Task LineWithArrow_ShouldTriggerExpressionBodyDiagnostic()
+        {
+            var testCode = @"
+class C
+{
+    public void M() => Console.WriteLine(""This is a very long expression-bodied method that exceeds the required limit for line length and should be reported by the analyzer."");
+}";
+            var diagnostics = await BaseMethods.GetDiagnosticsAsync(testCode);
+            Assert.That(diagnostics.Any(d => d.Id == "LINE002"), "Expected a diagnostic for the long expression-bodied line.");
+        }
     }
 }

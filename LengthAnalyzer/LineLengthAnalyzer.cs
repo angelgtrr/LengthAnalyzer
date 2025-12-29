@@ -11,7 +11,7 @@ namespace LengthAnalyzer
     public class LineLengthAnalyzer : DiagnosticAnalyzer
     {
         public const string LineTooLongId = "LINE001";
-        public const string ArgumentsTooLongId = "LINE002";
+        public const string ExpressionBodyTooLongId = "LINE002";
 
         private static readonly DiagnosticDescriptor LineTooLongRule = new DiagnosticDescriptor(
             id: LineTooLongId,
@@ -21,16 +21,16 @@ namespace LengthAnalyzer
             defaultSeverity: DiagnosticSeverity.Warning,
             isEnabledByDefault: true);
 
-        private static readonly DiagnosticDescriptor ArgumentsTooLongRule = new DiagnosticDescriptor(
-            id: ArgumentsTooLongId,
-            title: "Arguments exceed limit",
-            messageFormat: "Function arguments exceed {0} characters, wrap arguments",
+        private static readonly DiagnosticDescriptor ExpressionBodyTooLongRule = new DiagnosticDescriptor(
+            id: ExpressionBodyTooLongId,
+            title: "Expression body too long",
+            messageFormat: "Expression body exceeds {0} characters",
             category: "Formatting",
             defaultSeverity: DiagnosticSeverity.Warning,
             isEnabledByDefault: true);
 
         public override ImmutableArray<DiagnosticDescriptor> SupportedDiagnostics
-            => ImmutableArray.Create(LineTooLongRule, ArgumentsTooLongRule);
+            => ImmutableArray.Create(LineTooLongRule, ExpressionBodyTooLongRule);
 
         public override void Initialize(AnalysisContext context)
         {
@@ -47,18 +47,47 @@ namespace LengthAnalyzer
                 maxLength = parsed;
 
             var text = context.Tree.GetText(context.CancellationToken);
+            var root = context.Tree.GetRoot(context.CancellationToken);
 
-            // LINE001: Line-based check
             foreach (var line in text.Lines)
             {
                 var lineText = text.ToString(line.Span);
                 if (lineText.Length > maxLength)
                 {
-                    var diagnostic = Diagnostic.Create(
-                        LineTooLongRule,
-                        Location.Create(context.Tree, line.Span),
-                        maxLength);
-                    context.ReportDiagnostic(diagnostic);
+                    if (lineText.Contains("=>"))
+                    {
+                        // Try to find the arrow clause on this line
+                        var arrow = root.DescendantNodes(line.Span)
+                                        .OfType<ArrowExpressionClauseSyntax>()
+                                        .FirstOrDefault();
+
+                        if (arrow != null)
+                        {
+                            // Report diagnostic on the whole arrow clause
+                            var diagnostic = Diagnostic.Create(
+                                ExpressionBodyTooLongRule,
+                                arrow.GetLocation(),
+                                maxLength);
+                            context.ReportDiagnostic(diagnostic);
+                            continue;
+                        }
+
+                        // Fallback: if no arrow clause found, still report LINE002 on the line
+                        var diagnosticFallback = Diagnostic.Create(
+                            ExpressionBodyTooLongRule,
+                            Location.Create(context.Tree, line.Span),
+                            maxLength);
+                        context.ReportDiagnostic(diagnosticFallback);
+                    }
+                    else
+                    {
+                        // Generic line too long
+                        var diagnostic = Diagnostic.Create(
+                            LineTooLongRule,
+                            Location.Create(context.Tree, line.Span),
+                            maxLength);
+                        context.ReportDiagnostic(diagnostic);
+                    }
                 }
             }
         }
