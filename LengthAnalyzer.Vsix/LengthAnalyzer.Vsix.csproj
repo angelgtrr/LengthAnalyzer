@@ -45,4 +45,7 @@
     <ProjectReference Update="@(ProjectReference)" Name="%(Filename)" />
   </ItemGroup>
 
+  <ItemGroup>
+    <Folder Include="Assets\icon.png" />
+  </ItemGroup>
 </Project>

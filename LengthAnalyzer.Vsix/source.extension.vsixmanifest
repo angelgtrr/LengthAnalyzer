@@ -3,7 +3,8 @@
   <Metadata>
     <Identity Id="LengthAnalyzer.a57da5cd-7bf8-4ba3-896d-7898a49bfddc" Version="1.0" Language="en-US" Publisher="a2.lopez"/>
     <DisplayName>LengthAnalyzer</DisplayName>
-    <Description xml:space="preserve">This is a sample diagnostic extension for the .NET Compiler Platform ("Roslyn").</Description>
+    <Description xml:space="preserve">Enforces maximum line length and wraps long expression-bodied members for consistent formatting.</Description>
+	<Icon>Assets\icon.png</Icon>
   </Metadata>
 	<Installation>
 		<!-- VS2022 (17.x) -->
