@@ -15,7 +15,8 @@ namespace LengthAnalyzer
     [ExportCodeFixProvider(LanguageNames.CSharp, Name = nameof(LineLengthCodeFixes)), Shared]
     public class LineLengthCodeFixes : CodeFixProvider
     {
-        private const string IndentUnit = "    "; // adjust to your team’s indent style
+        private const string IndentUnit = "    "; // team indent style
+        private const int MaxLength = 140;        // analyzer threshold
 
         public override ImmutableArray<string> FixableDiagnosticIds
             => ImmutableArray.Create(LineLengthAnalyzer.LineTooLongId);
@@ -37,17 +38,40 @@ namespace LengthAnalyzer
         private async Task<Document> ApplyFixAsync(Document document, Diagnostic diagnostic, CancellationToken cancellationToken)
         {
             var root = await document.GetSyntaxRootAsync(cancellationToken).ConfigureAwait(false);
-            var spanNode = root.FindNode(diagnostic.Location.SourceSpan);
+            var text = await document.GetTextAsync(cancellationToken).ConfigureAwait(false);
+            var spanNode = root.FindNode(diagnostic.Location.SourceSpan, getInnermostNodeForTie: true);
 
-            // Expand scope: operate on enclosing method if available
+            // Prefer constructor initializer wrapping if diagnostic is on a constructor line
+            var ctor = spanNode.FirstAncestorOrSelf<ConstructorDeclarationSyntax>()
+                       ?? spanNode.Parent?.FirstAncestorOrSelf<ConstructorDeclarationSyntax>();
+
+            if (ctor?.Initializer?.ArgumentList != null)
+            {
+                var init = ctor.Initializer;
+                var colonToken = init.ColonToken;
+                var line = text.Lines[text.Lines.GetLineFromPosition(colonToken.SpanStart).LineNumber];
+                var lineLength = line.End - line.Start;
+
+                if (lineLength > MaxLength)
+                {
+                    var wrappedArgs = WrapArgumentsForCtor(init.ArgumentList, ctor);
+                    if (!ReferenceEquals(wrappedArgs, init.ArgumentList))
+                    {
+                        var newCtor = ctor.WithInitializer(init.WithArgumentList(wrappedArgs));
+                        var newRoot = root.ReplaceNode(ctor, newCtor.WithAdditionalAnnotations(Formatter.Annotation));
+                        return document.WithSyntaxRoot(newRoot);
+                    }
+                }
+            }
+
+            // Fallback path for methods etc.
             var target = spanNode.FirstAncestorOrSelf<MethodDeclarationSyntax>() ?? spanNode;
-
             var newTarget = HandleNode(target);
             if (newTarget == null || ReferenceEquals(newTarget, target))
                 return document;
 
-            var newRoot = root.ReplaceNode(target, newTarget);
-            return document.WithSyntaxRoot(newRoot);
+            var replacedRoot = root.ReplaceNode(target, newTarget);
+            return document.WithSyntaxRoot(replacedRoot);
         }
 
         private SyntaxNode HandleNode(SyntaxNode node)
@@ -101,30 +125,26 @@ namespace LengthAnalyzer
             return new string(' ', linePos.Character);
         }
 
-        // For invocation arguments
+        // For general invocation arguments (unchanged)
         private ArgumentListSyntax WrapArguments(ArgumentListSyntax node)
         {
-            // If only one argument, leave it as-is
             if (node.Arguments.Count <= 1)
                 return node;
 
             var baseIndent = GetBaseIndent(node.Parent);
             var argIndent = baseIndent + IndentUnit;
 
-            var args = node.Arguments;
-            var items = new System.Collections.Generic.List<SyntaxNodeOrToken>(args.Count * 2);
-
+            var items = new System.Collections.Generic.List<SyntaxNodeOrToken>(node.Arguments.Count * 2);
             var openParen = node.OpenParenToken.WithTrailingTrivia(SyntaxFactory.ElasticCarriageReturnLineFeed);
 
-            for (int i = 0; i < args.Count; i++)
+            for (int i = 0; i < node.Arguments.Count; i++)
             {
-                var argNode = args[i]
-                    .WithLeadingTrivia(SyntaxFactory.Whitespace(argIndent))
-                    .WithTrailingTrivia(SyntaxTriviaList.Empty);
+                var argNode = node.Arguments[i]
+                    .WithLeadingTrivia(SyntaxFactory.Whitespace(argIndent));
 
                 items.Add(argNode);
 
-                if (i < args.Count - 1)
+                if (i < node.Arguments.Count - 1)
                 {
                     var comma = SyntaxFactory.Token(SyntaxKind.CommaToken)
                         .WithTrailingTrivia(SyntaxFactory.ElasticCarriageReturnLineFeed);
@@ -139,30 +159,67 @@ namespace LengthAnalyzer
                 .WithAdditionalAnnotations(Formatter.Annotation);
         }
 
-        // For method declaration parameters
+        // For constructor initializer arguments: each on its own line, continuation indent = constructor indent + one space
+        private ArgumentListSyntax WrapArgumentsForCtor(ArgumentListSyntax node, ConstructorDeclarationSyntax ctor)
+        {
+            if (node.Arguments.Count <= 1)
+                return node;
+
+            // Anchor to constructor line start, then add one space for continuation
+            var argIndent = GetBaseIndent(ctor) + " ";
+
+            var items = new System.Collections.Generic.List<SyntaxNodeOrToken>(node.Arguments.Count * 2);
+
+            var openParen = node.OpenParenToken
+                .WithTrailingTrivia(
+                    SyntaxFactory.ElasticCarriageReturnLineFeed,
+                    SyntaxFactory.Whitespace(argIndent));
+
+            for (int i = 0; i < node.Arguments.Count; i++)
+            {
+                var argNode = node.Arguments[i]
+                    .WithLeadingTrivia(SyntaxFactory.Whitespace(argIndent));
+
+                items.Add(argNode);
+
+                if (i < node.Arguments.Count - 1)
+                {
+                    // Comma ends the line, then newline + indent before next argument
+                    var comma = SyntaxFactory.Token(SyntaxKind.CommaToken)
+                        .WithTrailingTrivia(
+                            SyntaxFactory.ElasticCarriageReturnLineFeed,
+                            SyntaxFactory.Whitespace(argIndent));
+                    items.Add(comma);
+                }
+            }
+
+            var separated = SyntaxFactory.SeparatedList<ArgumentSyntax>(items);
+            var closeParen = node.CloseParenToken.WithLeadingTrivia(SyntaxTriviaList.Empty);
+
+            return SyntaxFactory.ArgumentList(openParen, separated, closeParen)
+                .WithAdditionalAnnotations(Formatter.Annotation);
+        }
+
+        // For method/constructor parameters (unchanged)
         private ParameterListSyntax WrapParameters(ParameterListSyntax node)
         {
-            // If only one parameter, leave it as-is
             if (node.Parameters.Count <= 1)
                 return node;
 
             var baseIndent = GetBaseIndent(node.Parent);
             var paramIndent = baseIndent + IndentUnit;
 
-            var parameters = node.Parameters;
-            var items = new System.Collections.Generic.List<SyntaxNodeOrToken>(parameters.Count * 2);
-
+            var items = new System.Collections.Generic.List<SyntaxNodeOrToken>(node.Parameters.Count * 2);
             var openParen = node.OpenParenToken.WithTrailingTrivia(SyntaxFactory.ElasticCarriageReturnLineFeed);
 
-            for (int i = 0; i < parameters.Count; i++)
+            for (int i = 0; i < node.Parameters.Count; i++)
             {
-                var paramNode = parameters[i]
-                    .WithLeadingTrivia(SyntaxFactory.Whitespace(paramIndent))
-                    .WithTrailingTrivia(SyntaxTriviaList.Empty);
+                var paramNode = node.Parameters[i]
+                    .WithLeadingTrivia(SyntaxFactory.Whitespace(paramIndent));
 
                 items.Add(paramNode);
 
-                if (i < parameters.Count - 1)
+                if (i < node.Parameters.Count - 1)
                 {
                     var comma = SyntaxFactory.Token(SyntaxKind.CommaToken)
                         .WithTrailingTrivia(SyntaxFactory.ElasticCarriageReturnLineFeed);
@@ -175,24 +232,6 @@ namespace LengthAnalyzer
 
             return SyntaxFactory.ParameterList(openParen, separated, closeParen)
                 .WithAdditionalAnnotations(Formatter.Annotation);
-        }
-
-        private SyntaxNode WrapStringLiteral(LiteralExpressionSyntax literal)
-        {
-            var text = literal.Token.ValueText;
-            int splitIndex = text.Length / 2;
-            var first = text.Substring(0, splitIndex);
-            var second = text.Substring(splitIndex);
-
-            var newExpr = SyntaxFactory.BinaryExpression(
-                SyntaxKind.AddExpression,
-                SyntaxFactory.LiteralExpression(SyntaxKind.StringLiteralExpression, SyntaxFactory.Literal(first)),
-                SyntaxFactory.LiteralExpression(SyntaxKind.StringLiteralExpression, SyntaxFactory.Literal(second)))
-                .WithLeadingTrivia(SyntaxFactory.ElasticCarriageReturnLineFeed)
-                .WithTrailingTrivia(SyntaxFactory.Whitespace(GetBaseIndent(literal.Parent) + IndentUnit))
-                .WithAdditionalAnnotations(Formatter.Annotation);
-
-            return newExpr;
         }
     }
 }

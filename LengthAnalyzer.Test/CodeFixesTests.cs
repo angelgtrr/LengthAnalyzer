@@ -126,5 +126,75 @@ class C
         }
 
 
+        [Test]
+        public async Task ConstructorArguments_ShouldBeWrappedByCodeFix()
+        {
+            var testCode = @"
+using Aquality.Appium.Mobile.Elements.Interfaces;
+using Aquality.Selenium.Core.Elements;
+using IpmQaApp.Screens.Base;
+using OpenQA.Selenium;
+
+namespace IpmQaApp.Screens.CintAs
+{
+    public class CintAsLeftMenuScreen : IpmQaAppLocatorPage
+    {
+        private ITextBox SearchTxtBx(ElementState elementState = ElementState.Displayed) =>
+            ElementFactory.GetTextBox(GetLocator(nameof(SearchTxtBx)), ""Search text box"", state: elementState);
+
+        public CintAsLeftMenuScreen() : base(GetLocatorStatic(typeof(CintAsLeftMenuScreen), nameof(CintAsLeftMenuScreen)), ""CintAs left menu screen"")
+        {
+        }
+
+        public void Search(string searchRequest)
+        {
+            var searchTxtBx = SearchTxtBx();
+            searchTxtBx.ClearAndType(searchRequest);
+            searchTxtBx.SendKeys(Keys.Enter);
+        }
+    }
+}";
+
+            var expectedFixedCode = @"
+using Aquality.Appium.Mobile.Elements.Interfaces;
+using Aquality.Selenium.Core.Elements;
+using IpmQaApp.Screens.Base;
+using OpenQA.Selenium;
+
+namespace IpmQaApp.Screens.CintAs
+{
+    public class CintAsLeftMenuScreen : IpmQaAppLocatorPage
+    {
+        private ITextBox SearchTxtBx(ElementState elementState = ElementState.Displayed) =>
+            ElementFactory.GetTextBox(GetLocator(nameof(SearchTxtBx)), ""Search text box"", state: elementState);
+
+        public CintAsLeftMenuScreen() : base(
+                  GetLocatorStatic(typeof(CintAsLeftMenuScreen), nameof(CintAsLeftMenuScreen)),
+                  ""CintAs left menu screen"")
+        {
+        }
+
+        public void Search(string searchRequest)
+        {
+            var searchTxtBx = SearchTxtBx();
+            searchTxtBx.ClearAndType(searchRequest);
+            searchTxtBx.SendKeys(Keys.Enter);
+        }
+    }
+}";
+
+            var diagnostics = await BaseMethods.GetDiagnosticsAsync(testCode);
+            Assert.That(diagnostics.Length, Is.GreaterThan(0), "No diagnostics found");
+            Assert.That(diagnostics[0].Id, Is.EqualTo("LINE001"), "Expected diagnostic not found");
+
+            var newText = await BaseMethods.ApplyArgumentsTooLong(testCode);
+
+            Assert.That(
+                newText.Trim(),
+                Is.EqualTo(expectedFixedCode.Trim()),
+                $"Result: {newText.Trim()} \n expected: {expectedFixedCode}");
+        }
+
+
     }
 }
